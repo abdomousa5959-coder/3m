@@ -1,0 +1,1429 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>علي ثامر</title>
+
+<link rel="shortcut icon" href="https://i.ibb.co/Cp1yXqYr/IMG-0991.png"/>
+<meta name="referrer" content="no-referrer"/>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
+
+<script src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js"></script>
+
+<!-- Shaka -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.7.13/shaka-player.compiled.js"></script>
+
+<!-- mpegts.js لتشغيل MPEG-TS -->
+<script src="https://cdn.jsdelivr.net/npm/mpegts.js@1.8.0/dist/mpegts.min.js"></script>
+
+<style>
+:root{
+    --primary-color:#00FC3C;
+    --live-color:#e62e2e;
+    --menu-bg:#282828;
+}
+
+*{
+    box-sizing:border-box;
+}
+
+html,body{
+    margin:0;
+    padding:0;
+    width:100%;
+    height:100%;
+    overflow:hidden;
+    background:#000;
+    font-family:'Tajawal',sans-serif!important;
+    -webkit-tap-highlight-color:transparent;
+}
+
+#player-container{
+    position:fixed;
+    inset:0;
+    width:100%;
+    height:100%;
+    background:#000;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    overflow:hidden;
+}
+
+#video-wrapper{
+    position:absolute;
+    inset:0;
+    width:100%;
+    height:100%;
+    background:#000;
+}
+
+#video{
+    width:100%;
+    height:100%;
+    object-fit:contain;
+    background:#000;
+}
+
+#loading-spinner{
+    width:60px;
+    height:60px;
+    border:5px solid rgba(255,255,255,.2);
+    border-top-color:var(--primary-color);
+    border-radius:50%;
+    animation:spin 1s linear infinite;
+    position:absolute;
+    left:50%;
+    top:50%;
+    transform:translate(-50%,-50%);
+    z-index:100;
+}
+
+@keyframes spin{
+    to{transform:translate(-50%,-50%) rotate(360deg)}
+}
+
+#error-overlay{
+    position:absolute;
+    z-index:100;
+    inset:0;
+    background:rgba(0,0,0,.92);
+    color:#fff;
+    display:none;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    text-align:center;
+    padding:20px;
+}
+
+#error-overlay i{
+    width:48px;
+    height:48px;
+    margin-bottom:20px;
+    color:var(--live-color);
+}
+
+#error-overlay h3{
+    margin:5px 0 10px;
+}
+
+#error-overlay p{
+    max-width:500px;
+    line-height:1.8;
+    color:#ccc;
+}
+
+/* التحكم */
+.controls-overlay{
+    position:absolute;
+    z-index:10;
+    transition:opacity .3s,visibility .3s;
+    opacity:0;
+    visibility:hidden;
+    pointer-events:none;
+}
+
+.controls-overlay.visible{
+    opacity:1;
+    visibility:visible;
+    pointer-events:auto;
+}
+
+#bottom-controls-container{
+    bottom:0;
+    left:0;
+    right:0;
+    padding:5px 15px 12px;
+    background:linear-gradient(to top,rgba(0,0,0,.9),transparent);
+}
+
+#center-controls{
+    top:50%;
+    left:50%;
+    transform:translate(-50%,-50%);
+}
+
+.center-controls-cluster{
+    display:flex;
+    align-items:center;
+    gap:40px;
+    background:rgba(0,0,0,.25);
+    padding:10px 20px;
+    border-radius:50px;
+}
+
+.control-button,
+.center-control-button{
+    background:none;
+    border:none;
+    color:#fff;
+    cursor:pointer;
+    padding:0;
+    outline:none;
+    -webkit-tap-highlight-color:transparent;
+    transition:all .2s ease;
+}
+
+.control-button:hover,
+.center-control-button:hover{
+    color:var(--primary-color);
+    transform:scale(1.1);
+}
+
+.control-button i,
+.control-button svg{
+    width:24px;
+    height:24px;
+}
+
+.center-control-button i{
+    width:42px;
+    height:42px;
+}
+
+.center-seek-button i{
+    width:32px;
+    height:32px;
+}
+
+.progress-bar-container{
+    width:100%;
+    padding:10px 0;
+}
+
+.progress-bar{
+    width:100%;
+    height:5px;
+    cursor:pointer;
+    accent-color:var(--primary-color);
+    direction:ltr;
+    display:block;
+}
+
+.bottom-controls{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    width:100%;
+}
+
+.controls-left,
+.controls-right{
+    display:flex;
+    align-items:center;
+    gap:15px;
+}
+
+#time-display-container{
+    color:#fff;
+    font-size:.9em;
+    font-weight:500;
+    min-width:100px;
+    text-align:center;
+}
+
+/* الإعدادات */
+#settings-popup{
+    position:absolute;
+    bottom:80px;
+    width:260px;
+    background:var(--menu-bg);
+    border-radius:8px;
+    z-index:20;
+    display:none;
+    box-shadow:0 0 20px rgba(0,0,0,.5);
+    border:1px solid rgba(255,255,255,.1);
+}
+
+#settings-list{
+    list-style:none;
+    padding:8px;
+    margin:0;
+    overflow-y:auto;
+    max-height:220px;
+}
+
+.settings-header{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    padding:5px 12px;
+    border-bottom:1px solid rgba(255,255,255,.1);
+}
+
+.settings-title{
+    color:#ccc;
+    font-weight:700;
+}
+
+.settings-close-btn,
+.settings-back-btn{
+    cursor:pointer;
+    color:#ccc;
+    padding:5px;
+}
+
+.menu-item{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    padding:12px 10px;
+    border-radius:5px;
+    cursor:pointer;
+    font-weight:500;
+    color:#fff;
+}
+
+.menu-item:hover{
+    background:rgba(255,255,255,.1);
+}
+
+.menu-item.active{
+    color:var(--primary-color);
+    font-weight:700;
+}
+
+.menu-item .checkmark{
+    width:20px;
+    height:20px;
+    visibility:hidden;
+}
+
+.menu-item.active .checkmark{
+    visibility:visible;
+}
+
+.menu-item-value{
+    font-size:.9em;
+    color:#aaa;
+    margin-right:auto;
+}
+
+/* الشعار */
+#player-logo,
+#telegram-link{
+    position:absolute;
+    z-index:9;
+    opacity:.8;
+    transition:.3s;
+}
+
+#player-logo{
+    bottom:30px;
+    right:15px;
+    height:60px;
+}
+
+#telegram-link{
+    top:18px;
+    right:18px;
+    color:#fff;
+}
+
+#player-logo img{
+    height:100%;
+    width:auto;
+}
+
+#player-logo:hover,
+#telegram-link:hover{
+    opacity:1;
+}
+
+#telegram-link:hover{
+    transform:scale(1.15);
+    color:#2AABEE;
+}
+
+/* زر الدخول فول سكرين */
+#fullscreen-btn{
+    position:relative;
+}
+
+/* على الهاتف */
+@media(max-width:600px){
+    .center-controls-cluster{
+        gap:25px;
+        padding:8px 16px;
+    }
+
+    .center-control-button i{
+        width:38px;
+        height:38px;
+    }
+
+    #player-logo{
+        height:45px;
+        bottom:60px;
+    }
+
+    #telegram-link{
+        top:12px;
+        right:12px;
+    }
+}
+</style>
+</head>
+
+<body>
+
+<div id="player-container">
+
+    <div id="loading-spinner"></div>
+
+    <div id="error-overlay">
+        <i data-feather="alert-triangle"></i>
+        <h3 id="error-title">فشل تحميل الفيديو</h3>
+        <p id="error-message">
+            قد يكون الفيديو متوقفاً أو أن الخادم لا يسمح بالتشغيل من المتصفح.
+        </p>
+    </div>
+
+    <div id="video-wrapper">
+        <video
+            id="video"
+            autoplay
+            playsinline
+            webkit-playsinline
+            preload="auto"
+            poster="https://i.ibb.co/VpPrbF94/image.png">
+        </video>
+    </div>
+
+    <!-- الإعدادات -->
+    <div id="settings-popup">
+
+        <div class="settings-header">
+
+            <span class="settings-back-btn" style="display:none;">
+                <i data-feather="arrow-right"></i>
+            </span>
+
+            <span class="settings-title">
+                الإعدادات
+            </span>
+
+            <span class="settings-close-btn">
+                <i data-feather="x"></i>
+            </span>
+
+        </div>
+
+        <ul id="settings-list"></ul>
+
+    </div>
+
+    <!-- أزرار المنتصف -->
+    <div id="center-controls" class="controls-overlay">
+
+        <div class="center-controls-cluster">
+
+            <button
+                class="control-button center-seek-button"
+                id="seek-forward-btn"
+                title="تقديم">
+                <i data-feather="fast-forward"></i>
+            </button>
+
+            <button
+                class="center-control-button"
+                id="play-pause-center-btn"
+                title="تشغيل/إيقاف">
+                <i data-feather="play"></i>
+            </button>
+
+            <button
+                class="control-button center-seek-button"
+                id="seek-backward-btn"
+                title="رجوع">
+                <i data-feather="rewind"></i>
+            </button>
+
+        </div>
+
+    </div>
+
+    <!-- الشريط السفلي -->
+    <div id="bottom-controls-container" class="controls-overlay">
+
+        <div class="progress-bar-container">
+            <input
+                type="range"
+                id="seek-bar"
+                min="0"
+                max="100"
+                value="0"
+                step="0.1"
+                class="progress-bar">
+        </div>
+
+        <div class="bottom-controls">
+
+            <div class="controls-left">
+
+                <button
+                    class="control-button"
+                    id="fullscreen-btn"
+                    title="ملء الشاشة">
+
+                    <i data-feather="maximize"></i>
+
+                </button>
+
+                <button
+                    id="settings-btn"
+                    class="control-button"
+                    title="الإعدادات">
+
+                    <i data-feather="settings"></i>
+
+                </button>
+
+                <button
+                    class="control-button"
+                    id="expand-btn"
+                    title="تغيير وضع العرض">
+                </button>
+
+            </div>
+
+            <div class="controls-right">
+
+                <div id="time-display-container">
+                    <span id="time-display">00:00 / 00:00</span>
+                </div>
+
+                <button
+                    class="control-button"
+                    id="mute-btn"
+                    title="كتم الصوت">
+
+                    <i data-feather="volume-2"></i>
+
+                </button>
+
+                <button
+                    class="control-button"
+                    id="play-pause-btn"
+                    title="تشغيل/إيقاف">
+
+                    <i data-feather="play"></i>
+
+                </button>
+
+            </div>
+
+        </div>
+
+    </div>
+
+</div>
+
+<script>
+
+document.addEventListener("DOMContentLoaded", function(){
+
+    feather.replace();
+
+    /* =====================================================
+       رابط الفيديو
+       ===================================================== */
+
+    const STREAM_URL =
+    "https://b2.shahidtv.net/files/Movies/hollywood/Spider-Man-Brand-New-Day-2026/Spider-Man-Brand-New-Day-2026-hdts-720p.mp4";
+
+
+    /* =====================================================
+       العناصر
+       ===================================================== */
+
+    const video = document.getElementById("video");
+    const container = document.getElementById("player-container");
+
+    const loading = document.getElementById("loading-spinner");
+
+    const errorOverlay = document.getElementById("error-overlay");
+    const errorTitle = document.getElementById("error-title");
+    const errorMessage = document.getElementById("error-message");
+
+    const centerControls =
+        document.getElementById("center-controls");
+
+    const bottomControls =
+        document.getElementById("bottom-controls-container");
+
+    const playBtn =
+        document.getElementById("play-pause-btn");
+
+    const centerPlayBtn =
+        document.getElementById("play-pause-center-btn");
+
+    const muteBtn =
+        document.getElementById("mute-btn");
+
+    const fullscreenBtn =
+        document.getElementById("fullscreen-btn");
+
+    const expandBtn =
+        document.getElementById("expand-btn");
+
+    const settingsBtn =
+        document.getElementById("settings-btn");
+
+    const settingsPopup =
+        document.getElementById("settings-popup");
+
+    const seekBar =
+        document.getElementById("seek-bar");
+
+    const timeDisplay =
+        document.getElementById("time-display");
+
+
+    /* =====================================================
+       وضع العرض
+       ===================================================== */
+
+    const expandSvg = `
+    <svg fill="currentColor"
+         xmlns="http://www.w3.org/2000/svg"
+         width="24"
+         height="24"
+         viewBox="0 0 100 100">
+
+        <path d="M22 20h14c1 0 2-1 2-2s-1-2-2-2H19c-1 0-2 1-2 2v17c0 1 1 2 2 2s2-1 2-2V25l16 16c1 1 2 1 3 0s1-2 0-3L22 20z"/>
+
+        <path d="M83 16H66c-1 0-2 1-2 2s1 2 2 2h13L62 37c-1 1-1 2 0 3s2 1 3 0l16-16v12c0 1 1 2 2 2s2-1 2-2V18c0-1-1-2-2-2z"/>
+
+        <path d="M37 61L20 77V66c0-1-1-2-2-2s-2 1-2 2v17c0 1 1 2 2 2h17c1 0 2-1 2-2s-1-2-2-2H23l17-16c1-1 1-2 0-3s-2-1-3-1z"/>
+
+        <path d="M83 64c-1 0-2 1-2 2v12L64 61c-1-1-2-1-3 0s-1 2 0 3l17 17H66c-1 0-2 1-2 2s1 2 2 2h17c1 0 2-1 2-2V66c0-1-1-2-2-2z"/>
+
+    </svg>`;
+
+    expandBtn.innerHTML = expandSvg;
+
+    let expandIndex = 0;
+
+    const expandModes = [
+        "contain",
+        "cover",
+        "fill"
+    ];
+
+
+    /* =====================================================
+       التحكم بالأزرار
+       ===================================================== */
+
+    function updatePlayIcon(){
+
+        const icon =
+            video.paused ? "play" : "pause";
+
+        playBtn.innerHTML =
+            `<i data-feather="${icon}"></i>`;
+
+        centerPlayBtn.innerHTML =
+            `<i data-feather="${icon}"></i>`;
+
+        feather.replace();
+    }
+
+
+    function updateMuteIcon(){
+
+        let icon;
+
+        if(video.muted || video.volume === 0){
+            icon = "volume-x";
+        }
+        else if(video.volume < .5){
+            icon = "volume-1";
+        }
+        else{
+            icon = "volume-2";
+        }
+
+        muteBtn.innerHTML =
+            `<i data-feather="${icon}"></i>`;
+
+        feather.replace();
+    }
+
+
+    function togglePlay(){
+
+        if(video.paused){
+
+            video.play().catch(function(e){
+                console.log(e);
+            });
+
+        }else{
+
+            video.pause();
+
+        }
+
+    }
+
+
+    /* =====================================================
+       الوقت
+       ===================================================== */
+
+    function formatTime(seconds){
+
+        if(!isFinite(seconds)){
+            return "00:00";
+        }
+
+        seconds = Math.max(0, Math.floor(seconds));
+
+        const hours =
+            Math.floor(seconds / 3600);
+
+        const minutes =
+            Math.floor((seconds % 3600) / 60);
+
+        const secs =
+            seconds % 60;
+
+        if(hours > 0){
+
+            return String(hours).padStart(2,"0") +
+                   ":" +
+                   String(minutes).padStart(2,"0") +
+                   ":" +
+                   String(secs).padStart(2,"0");
+
+        }
+
+        return String(minutes).padStart(2,"0") +
+               ":" +
+               String(secs).padStart(2,"0");
+
+    }
+
+
+    function updateTimeDisplay(){
+
+        const current =
+            video.currentTime || 0;
+
+        const duration =
+            video.duration || 0;
+
+        timeDisplay.textContent =
+            formatTime(current) +
+            " / " +
+            formatTime(duration);
+
+    }
+
+
+    /* =====================================================
+       شريط التحريك
+       ===================================================== */
+
+    video.addEventListener(
+        "loadedmetadata",
+        function(){
+
+            if(isFinite(video.duration)){
+
+                seekBar.max =
+                    video.duration;
+
+            }
+
+            updateTimeDisplay();
+
+        }
+    );
+
+
+    video.addEventListener(
+        "durationchange",
+        function(){
+
+            if(isFinite(video.duration)){
+
+                seekBar.max =
+                    video.duration;
+
+            }
+
+            updateTimeDisplay();
+
+        }
+    );
+
+
+    video.addEventListener(
+        "timeupdate",
+        function(){
+
+            if(
+                isFinite(video.duration) &&
+                !seekBar.matches(":active")
+            ){
+
+                seekBar.value =
+                    video.currentTime;
+
+            }
+
+            updateTimeDisplay();
+
+        }
+    );
+
+
+    seekBar.addEventListener(
+        "input",
+        function(){
+
+            if(isFinite(video.duration)){
+
+                video.currentTime =
+                    Number(seekBar.value);
+
+            }
+
+        }
+    );
+
+
+    /* =====================================================
+       فول سكرين حقيقي
+       ===================================================== */
+
+    async function fullscreen(){
+
+        try{
+
+            if(!document.fullscreenElement){
+
+                if(container.requestFullscreen){
+
+                    await container.requestFullscreen();
+
+                }
+                else if(video.webkitEnterFullscreen){
+
+                    video.webkitEnterFullscreen();
+
+                }
+
+            }else{
+
+                if(document.exitFullscreen){
+
+                    await document.exitFullscreen();
+
+                }
+
+            }
+
+        }catch(e){
+
+            console.log("Fullscreen error:",e);
+
+        }
+
+    }
+
+
+    function updateFullscreenIcon(){
+
+        fullscreenBtn.innerHTML =
+        `<i data-feather="${
+            document.fullscreenElement
+            ? "minimize"
+            : "maximize"
+        }"></i>`;
+
+        feather.replace();
+
+    }
+
+
+    /* =====================================================
+       التحكم بالواجهة
+       ===================================================== */
+
+    let controlTimer;
+
+    function showControls(){
+
+        centerControls.classList.add("visible");
+        bottomControls.classList.add("visible");
+
+        clearTimeout(controlTimer);
+
+        if(!video.paused){
+
+            controlTimer =
+            setTimeout(function(){
+
+                centerControls.classList.remove("visible");
+                bottomControls.classList.remove("visible");
+
+            },4000);
+
+        }
+
+    }
+
+
+    function hideControls(){
+
+        if(
+            settingsPopup.style.display === "block"
+        ) return;
+
+        centerControls.classList.remove("visible");
+        bottomControls.classList.remove("visible");
+
+    }
+
+
+    /* =====================================================
+       تشغيل TS باستخدام MPEGTS.JS
+       ===================================================== */
+
+    let mpegPlayer = null;
+
+
+    function startTS(){
+
+        console.log("تشغيل MPEG-TS:",STREAM_URL);
+
+        if(
+            typeof mpegts === "undefined" ||
+            !mpegts.isSupported()
+        ){
+
+            showError(
+                "المتصفح لا يدعم MPEG-TS",
+                "هذا البث TS مباشر ويحتاج إلى متصفح يدعم MSE/MPEG-TS."
+            );
+
+            return;
+
+        }
+
+
+        try{
+
+            mpegPlayer =
+            mpegts.createPlayer({
+
+                type:"mpegts",
+
+                url:STREAM_URL,
+
+                isLive:true,
+
+                cors:true
+
+            },{
+                enableWorker:true,
+
+                lazyLoad:false,
+
+                autoCleanupSourceBuffer:false,
+
+                liveBufferLatencyChasing:true,
+
+                liveBufferLatencyMaxLatency:5,
+
+                liveBufferLatencyMinRemain:1
+
+            });
+
+
+            mpegPlayer.attachMediaElement(video);
+
+            mpegPlayer.load();
+
+            mpegPlayer.play().catch(function(){
+
+                console.log(
+                    "التشغيل التلقائي محظور، اضغط تشغيل."
+                );
+
+                video.muted = true;
+
+            });
+
+
+            mpegPlayer.on(
+                mpegts.Events.ERROR,
+                function(type,detail,info){
+
+                    console.error(
+                        "MPEGTS ERROR:",
+                        type,
+                        detail,
+                        info
+                    );
+
+                    loading.style.display="none";
+
+                    showError(
+                        "فشل تشغيل البث",
+                        "تعذر تشغيل بث TS. قد يكون الخادم يمنع الاتصال من المتصفح أو أن البث غير متاح حالياً."
+                    );
+
+                }
+            );
+
+
+            mpegPlayer.on(
+                mpegts.Events.LOADING_COMPLETE,
+                function(){
+
+                    console.log(
+                        "انتهى البث"
+                    );
+
+                }
+            );
+
+
+            video.addEventListener(
+                "canplay",
+                function(){
+
+                    loading.style.display="none";
+
+                    updatePlayIcon();
+
+                    showControls();
+
+                },
+                {once:true}
+            );
+
+
+        }catch(error){
+
+            console.error(error);
+
+            showError(
+                "خطأ في تشغيل TS",
+                error.message || "حدث خطأ غير معروف."
+            );
+
+        }
+
+    }
+
+
+    /* =====================================================
+       تشغيل MP4 / M3U8 / MPD
+       ===================================================== */
+
+    async function startStream(){
+
+        loading.style.display = "block";
+        errorOverlay.style.display = "none";
+
+
+        /*
+         * MP4
+         */
+
+        if(
+            STREAM_URL.toLowerCase().includes(".mp4")
+        ){
+
+            try{
+
+                video.src = STREAM_URL;
+
+                video.load();
+
+                video.play().catch(function(){
+
+                    console.log(
+                        "Autoplay blocked - اضغط تشغيل."
+                    );
+
+                });
+
+            }catch(error){
+
+                console.error(error);
+
+                showError(
+                    "فشل تحميل الفيديو",
+                    error.message ||
+                    "تعذر تشغيل الرابط."
+                );
+
+            }
+
+            return;
+
+        }
+
+
+        /*
+         * TS
+         */
+
+        if(
+            STREAM_URL.toLowerCase().includes(".ts")
+        ){
+
+            startTS();
+
+            return;
+
+        }
+
+
+        /*
+         * M3U8 أو MPD
+         */
+
+        try{
+
+            if(!window.shaka){
+
+                throw new Error(
+                    "Shaka Player غير متوفر"
+                );
+
+            }
+
+
+            shaka.polyfill.installAll();
+
+
+            if(
+                !shaka.Player.isBrowserSupported()
+            ){
+
+                throw new Error(
+                    "المتصفح لا يدعم Shaka Player"
+                );
+
+            }
+
+
+            const player =
+                new shaka.Player(video);
+
+
+            player.configure({
+
+                streaming:{
+                    rebufferingGoal:2,
+                    bufferingGoal:10,
+                    lowLatencyMode:false
+                },
+
+                abr:{
+                    enabled:true,
+                    defaultBandwidthEstimate:3000000
+                }
+
+            });
+
+
+            await player.load(
+                STREAM_URL
+            );
+
+
+            video.play().catch(function(){
+
+                console.log(
+                    "Autoplay blocked"
+                );
+
+            });
+
+        }catch(error){
+
+            console.error(
+                "Stream Error:",
+                error
+            );
+
+            showError(
+                "فشل تحميل الفيديو",
+                error.message ||
+                "تعذر تشغيل الرابط."
+            );
+
+        }
+
+    }
+
+
+    /* =====================================================
+       الأحداث
+       ===================================================== */
+
+    playBtn.onclick=function(e){
+
+        e.stopPropagation();
+
+        togglePlay();
+
+    };
+
+
+    centerPlayBtn.onclick=function(e){
+
+        e.stopPropagation();
+
+        togglePlay();
+
+    };
+
+
+    muteBtn.onclick=function(e){
+
+        e.stopPropagation();
+
+        video.muted =
+            !video.muted;
+
+        updateMuteIcon();
+
+    };
+
+
+    fullscreenBtn.onclick=function(e){
+
+        e.stopPropagation();
+
+        fullscreen();
+
+    };
+
+
+    expandBtn.onclick=function(e){
+
+        e.stopPropagation();
+
+        expandIndex =
+            (expandIndex + 1) %
+            expandModes.length;
+
+        video.style.objectFit =
+            expandModes[expandIndex];
+
+    };
+
+
+    document.addEventListener(
+        "fullscreenchange",
+        updateFullscreenIcon
+    );
+
+
+    video.addEventListener(
+        "play",
+        function(){
+
+            updatePlayIcon();
+            showControls();
+
+        }
+    );
+
+
+    video.addEventListener(
+        "pause",
+        function(){
+
+            updatePlayIcon();
+            showControls();
+
+        }
+    );
+
+
+    video.addEventListener(
+        "volumechange",
+        updateMuteIcon
+    );
+
+
+    video.addEventListener(
+        "canplay",
+        function(){
+
+            loading.style.display="none";
+
+            updatePlayIcon();
+
+            updateTimeDisplay();
+
+            showControls();
+
+        }
+    );
+
+
+    video.addEventListener(
+        "error",
+        function(){
+
+            loading.style.display="none";
+
+            if(video.error){
+
+                showError(
+                    "فشل تحميل الفيديو",
+                    "تعذر تشغيل ملف الفيديو من الخادم."
+                );
+
+            }
+
+        }
+    );
+
+
+    container.addEventListener(
+        "mousemove",
+        showControls
+    );
+
+
+    container.addEventListener(
+        "touchstart",
+        function(){
+
+            if(
+                centerControls.classList.contains("visible")
+            ){
+
+                hideControls();
+
+            }else{
+
+                showControls();
+
+            }
+
+        },
+        {passive:true}
+    );
+
+
+    /* تقديم / رجوع */
+
+    document.getElementById(
+        "seek-backward-btn"
+    ).onclick=function(){
+
+        if(isFinite(video.currentTime)){
+
+            video.currentTime =
+                Math.max(
+                    0,
+                    video.currentTime - 10
+                );
+
+        }
+
+    };
+
+
+    document.getElementById(
+        "seek-forward-btn"
+    ).onclick=function(){
+
+        if(isFinite(video.currentTime)){
+
+            video.currentTime =
+                Math.min(
+                    video.duration || Infinity,
+                    video.currentTime + 10
+                );
+
+        }
+
+    };
+
+
+    /* =====================================================
+       إعدادات
+       ===================================================== */
+
+    settingsBtn.onclick=function(e){
+
+        e.stopPropagation();
+
+        if(
+            settingsPopup.style.display === "block"
+        ){
+
+            settingsPopup.style.display="none";
+
+        }else{
+
+            settingsPopup.style.display="block";
+
+        }
+
+    };
+
+
+    document.querySelector(
+        ".settings-close-btn"
+    ).onclick=function(){
+
+        settingsPopup.style.display="none";
+
+    };
+
+
+    /* =====================================================
+       رسالة الخطأ
+       ===================================================== */
+
+    function showError(title,message){
+
+        loading.style.display="none";
+
+        errorTitle.textContent=title;
+
+        errorMessage.textContent=message;
+
+        errorOverlay.style.display="flex";
+
+        feather.replace();
+
+    }
+
+
+    /* =====================================================
+       بدء التشغيل
+       ===================================================== */
+
+    updateMuteIcon();
+
+    updatePlayIcon();
+
+    startStream();
+
+});
+</script>
+
+</body>
+</html>
