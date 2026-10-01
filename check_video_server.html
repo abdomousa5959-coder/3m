@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>فاحص CORS و Range</title>
+<style>
+*{box-sizing:border-box}
+body{
+    margin:0;
+    padding:20px;
+    background:#111;
+    color:#fff;
+    font-family:Arial,Tahoma,sans-serif;
+}
+.box{
+    max-width:700px;
+    margin:auto;
+    background:#1d1d1d;
+    padding:20px;
+    border-radius:14px;
+}
+h1{margin-top:0;font-size:24px}
+p{color:#bbb;line-height:1.7}
+input{
+    width:100%;
+    padding:14px;
+    border:1px solid #444;
+    border-radius:8px;
+    background:#0d0d0d;
+    color:#fff;
+    direction:ltr;
+    font-size:14px;
+}
+button{
+    width:100%;
+    margin-top:12px;
+    padding:14px;
+    border:0;
+    border-radius:8px;
+    background:#00fc3c;
+    color:#000;
+    font-weight:bold;
+    font-size:16px;
+    cursor:pointer;
+}
+button:disabled{opacity:.5}
+.result{
+    margin-top:20px;
+    padding:15px;
+    border-radius:10px;
+    background:#101010;
+}
+.item{
+    padding:12px 0;
+    border-bottom:1px solid #333;
+}
+.item:last-child{border-bottom:0}
+.ok{color:#00fc3c}
+.bad{color:#ff5252}
+.warn{color:#ffc107}
+.muted{color:#aaa}
+pre{
+    direction:ltr;
+    text-align:left;
+    white-space:pre-wrap;
+    word-break:break-word;
+    background:#080808;
+    padding:12px;
+    border-radius:8px;
+    color:#ddd;
+    font-size:12px;
+    max-height:300px;
+    overflow:auto;
+}
+.small{font-size:13px;color:#aaa}
+</style>
+</head>
+
+<body>
+
+<div class="box">
+    <h1>🔍 فاحص CORS و Range</h1>
+
+    <p>
+        ضع رابط ملف الفيديو MP4 ثم اضغط فحص.
+        الاختبار يتم من المتصفح نفسه، لذلك هو مفيد لمعرفة هل
+        موقعك يستطيع الوصول للفيديو واستخدام طلبات Range.
+    </p>
+
+    <input
+        id="url"
+        type="url"
+        placeholder="https://example.com/video.mp4"
+        value="">
+
+    <button id="check">بدء الفحص</button>
+
+    <div id="result" class="result">
+        <div class="muted">لم يبدأ الفحص بعد.</div>
+    </div>
+</div>
+
+<script>
+const urlInput = document.getElementById("url");
+const button = document.getElementById("check");
+const result = document.getElementById("result");
+
+function esc(value){
+    return String(value ?? "")
+        .replace(/&/g,"&amp;")
+        .replace(/</g,"&lt;")
+        .replace(/>/g,"&gt;")
+        .replace(/"/g,"&quot;");
+}
+
+function row(title,status,message){
+    const cls =
+        status === "ok" ? "ok" :
+        status === "bad" ? "bad" : "warn";
+
+    const icon =
+        status === "ok" ? "✅" :
+        status === "bad" ? "❌" : "⚠️";
+
+    return `
+        <div class="item">
+            <strong>${icon} ${esc(title)}</strong>
+            <div class="${cls}" style="margin-top:6px">
+                ${esc(message)}
+            </div>
+        </div>
+    `;
+}
+
+async function testCors(url){
+    try{
+        const response = await fetch(url,{
+            method:"HEAD",
+            mode:"cors",
+            cache:"no-store"
+        });
+
+        const allowOrigin =
+            response.headers.get("access-control-allow-origin");
+
+        return {
+            ok:true,
+            response,
+            allowOrigin
+        };
+
+    }catch(error){
+
+        return {
+            ok:false,
+            error:error.message
+        };
+    }
+}
+
+async function testRange(url){
+    try{
+        const response = await fetch(url,{
+            method:"GET",
+            mode:"cors",
+            cache:"no-store",
+            headers:{
+                "Range":"bytes=0-1023"
+            }
+        });
+
+        const contentRange =
+            response.headers.get("content-range");
+
+        const acceptRanges =
+            response.headers.get("accept-ranges");
+
+        const contentType =
+            response.headers.get("content-type");
+
+        /*
+         * مهم:
+         * لا نقرأ body بالكامل.
+         * نغلق الاستجابة بعد الحصول على headers.
+         */
+        if(response.body){
+            try{
+                await response.body.cancel();
+            }catch(e){}
+        }
+
+        return {
+            ok:true,
+            status:response.status,
+            contentRange,
+            acceptRanges,
+            contentType
+        };
+
+    }catch(error){
+
+        return {
+            ok:false,
+            error:error.message
+        };
+    }
+}
+
+async function run(){
+
+    const url =
+        urlInput.value.trim();
+
+    if(!url){
+        result.innerHTML =
+            row(
+                "الرابط",
+                "bad",
+                "ضع رابط الفيديو أولاً."
+            );
+        return;
+    }
+
+    try{
+        new URL(url);
+    }catch(e){
+        result.innerHTML =
+            row(
+                "الرابط",
+                "bad",
+                "الرابط غير صحيح."
+            );
+        return;
+    }
+
+    button.disabled = true;
+    button.textContent = "جاري الفحص...";
+
+    result.innerHTML =
+        `<div class="muted">⏳ جاري اختبار CORS و Range من المتصفح...</div>`;
+
+    /*
+     * اختبار CORS
+     */
+    const cors =
+        await testCors(url);
+
+    /*
+     * اختبار Range
+     */
+    const range =
+        await testRange(url);
+
+    let html = "";
+
+    /*
+     * CORS
+     */
+    if(!cors.ok){
+
+        html += row(
+            "CORS",
+            "bad",
+            "فشل الطلب من المتصفح. غالبًا السيرفر لا يسمح بطلبات CORS لهذا الموقع، أو أن السيرفر رفض طلب HEAD. الخطأ: " + cors.error
+        );
+
+    }else{
+
+        const origin =
+            cors.allowOrigin;
+
+        if(origin === "*" || origin){
+
+            html += row(
+                "CORS",
+                "ok",
+                "السيرفر أرسل Access-Control-Allow-Origin: " +
+                origin +
+                " — المتصفح يستطيع الوصول للملف عبر CORS."
+            );
+
+        }else{
+
+            html += row(
+                "CORS",
+                "bad",
+                "تم الوصول للسيرفر، لكن لم يظهر Access-Control-Allow-Origin في الاستجابة. قد يمنع المتصفح استخدام الملف من موقعك."
+            );
+        }
+    }
+
+    /*
+     * Range
+     */
+    if(!range.ok){
+
+        html += row(
+            "Range",
+            "bad",
+            "فشل طلب Range من المتصفح. الخطأ: " +
+            range.error
+        );
+
+    }else{
+
+        const rangeOK =
+            range.status === 206 &&
+            !!range.contentRange;
+
+        if(rangeOK){
+
+            html += row(
+                "Range",
+                "ok",
+                "ممتاز. السيرفر أعاد 206 Partial Content و Content-Range. التقديم والتأخير في الفيديو مدعومان بشكل صحيح."
+            );
+
+        }else if(range.status === 200){
+
+            html += row(
+                "Range",
+                "warn",
+                "السيرفر أعاد 200 بدل 206. هذا يعني أن طلب Range لم يُنفذ كطلب جزئي. قد يسبب مشاكل أو بطئًا عند القفز داخل الفيلم."
+            );
+
+        }else{
+
+            html += row(
+                "Range",
+                "bad",
+                "السيرفر لم ينفذ طلب Range بالشكل المطلوب. HTTP Status: " +
+                range.status
+            );
+        }
+    }
+
+    /*
+     * Content-Type
+     */
+    if(range.contentType){
+
+        const isVideo =
+            range.contentType
+                .toLowerCase()
+                .includes("video");
+
+        html += row(
+            "نوع الملف",
+            isVideo ? "ok" : "warn",
+            "Content-Type: " + range.contentType
+        );
+
+    }
+
+    /*
+     * التفاصيل التقنية
+     */
+    html += `
+        <div class="item">
+            <strong>📋 تفاصيل الاستجابة</strong>
+            <pre>${esc(JSON.stringify({
+                cors:{
+                    accessControlAllowOrigin:
+                        cors.allowOrigin || null
+                },
+                range:{
+                    httpStatus:
+                        range.status ?? null,
+                    acceptRanges:
+                        range.acceptRanges || null,
+                    contentRange:
+                        range.contentRange || null,
+                    contentType:
+                        range.contentType || null
+                }
+            },null,2))}</pre>
+        </div>
+    `;
+
+    html += `
+        <div class="item small">
+            <strong>ملاحظة:</strong>
+            عدم ظهور Access-Control-Allow-Origin يعني غالبًا أن CORS غير مسموح
+            لموقعك. وظهور 206 Partial Content مع Content-Range هو النتيجة
+            المطلوبة لدعم التقديم والتأخير بكفاءة.
+        </div>
+    `;
+
+    result.innerHTML = html;
+
+    button.disabled = false;
+    button.textContent = "إعادة الفحص";
+}
+
+button.addEventListener("click",run);
+
+urlInput.addEventListener("keydown",function(e){
+    if(e.key === "Enter"){
+        run();
+    }
+});
+</script>
+
+</body>
+</html>
