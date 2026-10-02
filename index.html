@@ -111,6 +111,23 @@ html,body{
     color:#ccc;
 }
 
+#error-overlay button{
+    border:0;
+    background:var(--primary-color);
+    color:#000;
+    font-family:inherit;
+    font-weight:700;
+    font-size:16px;
+    padding:11px 24px;
+    border-radius:8px;
+    cursor:pointer;
+    margin-top:8px;
+    min-width:150px;
+}
+#error-overlay button:active{
+    transform:scale(.97);
+}
+
 /* التحكم */
 .controls-overlay{
     position:absolute;
@@ -387,8 +404,9 @@ html,body{
         <i data-feather="alert-triangle"></i>
         <h3 id="error-title">فشل تحميل الفيديو</h3>
         <p id="error-message">
-            قد يكون الفيديو متوقفاً أو أن الخادم لا يسمح بالتشغيل من المتصفح.
+            تعذر تشغيل الفيديو. سيتم إعادة المحاولة تلقائياً.
         </p>
+        <button id="retry-btn" type="button">إعادة المحاولة</button>
     </div>
 
     <div id="video-wrapper">
@@ -397,7 +415,9 @@ html,body{
             autoplay
             playsinline
             webkit-playsinline
-            preload="metadata">
+            preload="auto"
+            controlslist="nodownload noplaybackrate"
+            disablepictureinpicture>
         </video>
     </div>
 
@@ -554,6 +574,9 @@ document.addEventListener("DOMContentLoaded", function(){
     const errorMessage =
         document.getElementById("error-message");
 
+    const retryBtn =
+        document.getElementById("retry-btn");
+
     const centerControls =
         document.getElementById("center-controls");
 
@@ -666,10 +689,14 @@ document.addEventListener("DOMContentLoaded", function(){
 
         if(video.paused){
 
+            if(video.readyState === 0 || video.networkState === HTMLMediaElement.NETWORK_NO_SOURCE){
+                startStream(true);
+                return;
+            }
+
             video.play().catch(function(error){
-
-                console.log(error);
-
+                console.log("Play error:", error);
+                scheduleRetry();
             });
 
         }
@@ -968,29 +995,61 @@ document.addEventListener("DOMContentLoaded", function(){
        تشغيل الفيديو MP4 مباشرة
        ===================================================== */
 
-    function startStream(){
+    let retryTimer = null;
+    let retryCount = 0;
+    let streamStarted = false;
+    let lastGoodTime = 0;
+
+    function startStream(manual = false){
+
+        if(retryTimer){
+            clearTimeout(retryTimer);
+            retryTimer = null;
+        }
+
+        if(manual){
+            retryCount = 0;
+        }
 
         loading.style.display = "block";
         errorOverlay.style.display = "none";
 
-        video.src = STREAM_URL;
+        try{
+            video.pause();
+            video.removeAttribute("src");
+            video.load();
+        }catch(e){}
 
+        video.src = STREAM_URL;
+        video.preload = "auto";
         video.load();
 
-        video.play().catch(function(error){
+        const playPromise = video.play();
 
-            console.log(
-                "Autoplay blocked:",
-                error
-            );
+        if(playPromise && typeof playPromise.catch === "function"){
+            playPromise.catch(function(error){
+                console.log("Autoplay:", error);
+                updatePlayIcon();
+            });
+        }
+    }
 
-            /*
-             * لو المتصفح منع التشغيل التلقائي
-             * يظهر زر التشغيل بدون اعتبار الفيديو Live.
-             */
+    function scheduleRetry(){
 
-        });
+        if(streamStarted || retryTimer){
+            return;
+        }
 
+        retryCount++;
+        const delay = Math.min(1000 * Math.pow(1.7, retryCount - 1), 8000);
+
+        loading.style.display = "block";
+        errorOverlay.style.display = "none";
+
+        retryTimer = setTimeout(function(){
+            retryTimer = null;
+            startStream(false);
+        }, delay);
     }
 
 
@@ -1150,16 +1209,68 @@ document.addEventListener("DOMContentLoaded", function(){
         "error",
         function(){
 
-            loading.style.display = "none";
+            streamStarted = false;
 
-            showError(
-                "فشل تحميل الفيديو",
-                "تعذر تشغيل ملف الفيديو من الخادم. إذا كان الرابط لا يدعم التحميل الجزئي (Range) فقد لا يعمل التقديم والتأخير بشكل صحيح."
-            );
+            const mediaError = video.error;
+            let message =
+                "تعذر تشغيل الفيديو من الخادم. سيتم إعادة المحاولة تلقائياً.";
 
+            if(mediaError){
+                if(mediaError.code === 1){
+                    message = "تم إيقاف تحميل الفيديو. اضغط إعادة المحاولة.";
+                }
+                else if(mediaError.code === 2){
+                    message = "حدثت مشكلة في الاتصال بالخادم. سيتم إعادة المحاولة تلقائياً.";
+                }
+                else if(mediaError.code === 3){
+                    message = "تعذر فك ملف الفيديو. قد يكون الملف أو الترميز غير مدعوم.";
+                }
+                else if(mediaError.code === 4){
+                    message = "المتصفح لا يستطيع تشغيل صيغة الفيديو من هذا الخادم.";
+                }
+            }
+
+            showError("فشل تحميل الفيديو", message);
+
+            if(retryCount < 5){
+                scheduleRetry();
+            }
         }
     );
 
+
+    video.addEventListener("loadedmetadata", function(){
+        retryCount = 0;
+        loading.style.display = "none";
+        updateTimeDisplay();
+        if(isFinite(video.duration)){
+            seekBar.max = video.duration;
+        }
+    });
+
+    video.addEventListener("playing", function(){
+        streamStarted = true;
+        retryCount = 0;
+        loading.style.display = "none";
+        updatePlayIcon();
+    });
+
+    video.addEventListener("progress", function(){
+        if(isFinite(video.currentTime) && video.currentTime > 0){
+            lastGoodTime = video.currentTime;
+        }
+    });
+
+    video.addEventListener("stalled", function(){
+        if(!video.paused && !video.ended){
+            loading.style.display = "block";
+        }
+    });
+
+    retryBtn.onclick = function(e){
+        e.stopPropagation();
+        startStream(true);
+    };
 
     container.addEventListener(
         "mousemove",
